@@ -1,0 +1,121 @@
+versiodocker-compose.ymln: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supavisor:
+    image: supabase/supavisor:latest
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      POOLER_TENANT_ID: ${POOLER_TENANT_ID}
+      POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE}
+      POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN}
+    depends_on:
+      - db
+
+  vector:
+    image: timberio/vector:latest-alpine
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      LOGFLARE_PUBLIC_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_PRIVATE_TOKEN: ${LOGFLARE_PRIVATE_ACCESS_TOKEN}
+    depends_on:
+      - db
+
+  kong:
+    image: kong:3.4
+    restart: always
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+    volumes:
+      - kong-data:/usr/local/kong
+      - ./kong.yml:/kong/kong.yml
+    depends_on:
+      - db
+
+  postgrest:
+    image: postgrest/postgrest:latest
+    restart: always
+    environment:
+      PGRST_DB_URI: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
+      PGRST_DB_SCHEMA: ${PGRST_DB_SCHEMAS}
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - db
+
+  gotrue:
+    image: supabase/gotrue:latest
+    restart: always
+    environment:
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_DB_DRIVER: "postgres"
+      GOTRUE_DB_DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+    depends_on:
+      - db
+
+  realtime:
+    image: supabase/realtime:latest
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      PORT: 4000
+    depends_on:
+      - db
+
+  storage:
+    image: supabase/storage-api:latest
+    restart: always
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      STORAGE_BACKEND: "file"
+      FILE_STORAGE_PATH: "/var/lib/storage"
+    volumes:
+      - storage-data:/var/lib/storage
+    depends_on:
+      - db
+
+  studio:
+    image: supabase/studio:latest
+    restart: always
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+    depends_on:
+      - postgrest
+
+volumes:
+  db-data:
+  storage-data:
+  kong-data:
+
+# Notes:
+# Coolify will expose the right ports and configure SSL for the domains you assign.
