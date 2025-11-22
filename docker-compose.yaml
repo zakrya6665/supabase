@@ -62,7 +62,7 @@ services:
       - db
 
   gotrue:
-    image: supabase/gotrue:latest
+    image: supabase/gotrue:v2.183.0-rc.10
     restart: always
     environment:
       GOTRUE_SITE_URL: ${SITE_URL}
