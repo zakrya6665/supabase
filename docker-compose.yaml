@@ -17,7 +17,7 @@ services:
       retries: 5
 
   supavisor:
-    image: supabase/supavisor:latest
+    image: supabase/supavisor:2.7.4
     restart: always
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
