@@ -1,5 +1,14 @@
 version: '3.8'
 
+networks:
+  default:
+    external: true
+    name: coolify
+
+volumes:
+  db-data:
+  storage-data:
+
 services:
   db:
     image: postgres:15-alpine
@@ -15,9 +24,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -26,14 +32,11 @@ services:
     restart: always
     environment:
       DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
-      POOLER_TENANT_ID: '${POOLER_TENANT_ID}'
-      POOLER_DEFAULT_POOL_SIZE: '${POOLER_DEFAULT_POOL_SIZE}'
-      POOLER_MAX_CLIENT_CONN: '${POOLER_MAX_CLIENT_CONN}'
+      POOLER_TENANT_ID: ${POOLER_TENANT_ID}
+      POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE}
+      POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN}
     depends_on:
       - db
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -42,14 +45,11 @@ services:
     restart: always
     environment:
       PGRST_DB_URI: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
-      PGRST_DB_ANON_ROLE: "anon"
-      PGRST_DB_SCHEMA: "public"
-      PGRST_JWT_SECRET: "${JWT_SECRET}"
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_SCHEMA: public
+      PGRST_JWT_SECRET: ${JWT_SECRET}
     depends_on:
       - db
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -68,9 +68,6 @@ services:
       GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
     depends_on:
       - db
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -85,9 +82,6 @@ services:
       PORT: 4000
     depends_on:
       - db
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -104,9 +98,6 @@ services:
       - storage-data:/var/lib/storage
     depends_on:
       - db
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
 
@@ -118,18 +109,5 @@ services:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
     depends_on:
       - postgrest
-    networks:
-      - supabase-net
-      - coolify
     env_file:
       - .env
-
-volumes:
-  db-data:
-  storage-data:
-
-networks:
-  supabase-net:
-    external: true
-  coolify:
-    external: true
