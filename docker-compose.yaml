@@ -8,22 +8,52 @@ networks:
 volumes:
   db-data:
   storage-data:
+  vault-data:
+  migrations-data:
 
 services:
   db:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_USER: postgres
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h localhost || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+    env_file:
+      - .env
+
+  vault:
+    image: vault:1.14.0
+    restart: always
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+    volumes:
+      - vault-data:/vault/data
+    ports:
+      - "8200:8200"
+    env_file:
+      - .env
+
+  kong:
+    image: kong:3.0.0
+    restart: always
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+    volumes:
+      - ./kong.yml:/kong/declarative/kong.yml:ro
+    ports:
+      - "${KONG_HTTP_PORT}:8000"
+      - "${KONG_HTTPS_PORT}:8443"
+    depends_on:
+      - db
     env_file:
       - .env
 
@@ -31,7 +61,7 @@ services:
     image: supabase/supavisor:2.7.4
     restart: always
     environment:
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
       POOLER_TENANT_ID: ${POOLER_TENANT_ID}
       POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE}
       POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN}
@@ -40,16 +70,35 @@ services:
     env_file:
       - .env
 
+  migrations:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "until pg_isready -h db -p ${POSTGRES_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}; do sleep 1; done;
+       psql 'postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}' -f /migrations/init.sql || exit 1;
+       echo 'migrations complete';"
+    env_file:
+      - .env
+
   postgrest:
-    image: postgrest/postgrest:latest
+    image: supabase/postgrest:v12.0.2
     restart: always
     environment:
-      PGRST_DB_URI: "postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_DB_SCHEMA: public
-      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_URI: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
+      PGRST_DB_EXTRA_SEARCH_PATH: public
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+      PGRST_OPEN_API_SERVER_PROXY_URI: ${API_EXTERNAL_URL}
     depends_on:
       - db
+      - migrations
     env_file:
       - .env
 
@@ -57,15 +106,16 @@ services:
     image: supabase/gotrue:v2.183.0-rc.10
     restart: always
     environment:
-      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_SITE_URL: ${SERVICE_URL_GOTRUE}
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
+      GOTRUE_DB_DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
       GOTRUE_SMTP_PORT: ${SMTP_PORT}
       GOTRUE_SMTP_USER: ${SMTP_USER}
       GOTRUE_SMTP_PASS: ${SMTP_PASS}
       GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      GOTRUE_SITE_URL_INTERNAL: ${SITE_URL}
     depends_on:
       - db
     env_file:
@@ -76,12 +126,13 @@ services:
     restart: always
     environment:
       DB_HOST: db
-      DB_USER: postgres
+      DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: postgres
+      DB_NAME: ${POSTGRES_DB}
       PORT: 4000
     depends_on:
       - db
+      - supavisor
     env_file:
       - .env
 
@@ -91,13 +142,14 @@ services:
     environment:
       ANON_KEY: ${ANON_KEY}
       SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
       STORAGE_BACKEND: file
       FILE_STORAGE_PATH: /var/lib/storage
     volumes:
       - storage-data:/var/lib/storage
     depends_on:
       - db
+      - migrations
     env_file:
       - .env
 
@@ -111,3 +163,25 @@ services:
       - postgrest
     env_file:
       - .env
+
+  dashboard:
+    image: supabase/dashboard:latest
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - db
+    env_file:
+      - .env
+
+  imgproxy:
+    image: darthsim/imgproxy:2.12.0
+    restart: always
+    environment:
+      IMGPROXY_BIND: 0.0.0.0:8080
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+
