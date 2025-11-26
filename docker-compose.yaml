@@ -30,7 +30,7 @@ services:
       - .env
 
   vault:
-    image: vault:1.14.0
+    image: vault:vault:1.12.0-rc1
     restart: always
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: root
@@ -87,7 +87,7 @@ services:
       - .env
 
   postgrest:
-    image: supabase/postgrest:v12.0.2
+    image: supabase/postgres:17.6.0.011-orioledb-INDATA-255
     restart: always
     environment:
       PGRST_DB_URI: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}"
@@ -103,7 +103,7 @@ services:
       - .env
 
   gotrue:
-    image: supabase/gotrue:v2.183.0-rc.10
+    image: supabase/gotrue:v2.183.0
     restart: always
     environment:
       GOTRUE_SITE_URL: ${SERVICE_URL_GOTRUE}
