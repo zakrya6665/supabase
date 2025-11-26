@@ -50,8 +50,8 @@ services:
     volumes:
       - ./kong.yml:/kong/declarative/kong.yml:ro
     ports:
-      - "${KONG_HTTP_PORT}:8000"
-      - "${KONG_HTTPS_PORT}:8443"
+      - "${KONG_HTTP_PORT}:8444"
+      - "${KONG_HTTPS_PORT}:8445"
     depends_on:
       - db
     env_file:
